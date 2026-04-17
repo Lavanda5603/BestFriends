@@ -1,0 +1,225 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<title>Conference API Tester</title>
+<style>
+  body{font-family:monospace;max-width:900px;margin:20px auto;padding:0 20px}
+  h2{border-bottom:2px solid #333;padding-bottom:5px}
+  .section{background:#f5f5f5;padding:15px;margin:15px 0;border-radius:5px}
+  input,select,textarea{width:100%;box-sizing:border-box;padding:6px;margin:4px 0;font-family:monospace}
+  button{padding:8px 16px;background:#333;color:#fff;border:none;cursor:pointer;margin:4px 2px}
+  button:hover{background:#555}
+  pre{background:#1e1e1e;color:#d4d4d4;padding:12px;overflow:auto;max-height:300px;border-radius:3px;font-size:12px}
+  label{font-weight:bold;font-size:13px}
+  .row{display:flex;gap:10px}
+  .row>*{flex:1}
+</style>
+</head>
+<body>
+<h1>🎤 Conference Backend Tester</h1>
+<div>Base URL: <input id="base" value="http://localhost:8000/api/v1" style="width:300px"></div>
+
+<h2>Conferences</h2>
+<div class="section">
+  <div class="row">
+    <div>
+      <label>Title</label>
+      <input id="conf-title" value="Test Conference">
+    </div>
+    <div>
+      <label>Language</label>
+      <input id="conf-lang" value="ru">
+    </div>
+  </div>
+  <button onclick="createConf()">➕ Create</button>
+  <button onclick="listConfs()">📋 List</button>
+</div>
+
+<h2>Upload Audio / Video</h2>
+<div class="section">
+  <label>Conference ID</label>
+  <input id="media-conf-id" placeholder="uuid">
+  <label>Audio/Video File</label>
+  <input type="file" id="media-file" accept="audio/*,video/*">
+  <button onclick="uploadMedia()">⬆️ Upload</button>
+  <label>Media ID (for transcribe)</label>
+  <input id="media-id" placeholder="uuid">
+  <label>Language (blank = auto)</label>
+  <input id="media-lang" placeholder="ru / en / ...">
+  <button onclick="transcribeMedia()">🔤 Transcribe</button>
+  <button onclick="getMedia()">📄 Get (with segments)</button>
+</div>
+
+<h2>Notes</h2>
+<div class="section">
+  <label>Conference ID</label>
+  <input id="note-conf-id" placeholder="uuid">
+  <label>Content</label>
+  <textarea id="note-content" rows="3">Важная заметка о конференции...</textarea>
+  <button onclick="createNote()">➕ Add Note</button>
+  <button onclick="listNotes()">📋 List Notes</button>
+</div>
+
+<h2>Upload Attachment</h2>
+<div class="section">
+  <label>Conference ID</label>
+  <input id="att-conf-id" placeholder="uuid">
+  <label>File (PDF, DOCX, PPTX, XLSX, TXT)</label>
+  <input type="file" id="att-file">
+  <button onclick="uploadAtt()">⬆️ Upload & Extract</button>
+</div>
+
+<h2>Summarize</h2>
+<div class="section">
+  <label>Conference ID</label>
+  <input id="sum-conf-id" placeholder="uuid">
+  <button onclick="summarize()">🤖 Summarize (Ollama)</button>
+  <button onclick="getSummary()">📖 Get Summary</button>
+</div>
+
+<h2>Search</h2>
+<div class="section">
+  <label>Query</label>
+  <input id="search-query" value="решение по бюджету">
+  <div class="row">
+    <div>
+      <label>Mode</label>
+      <select id="search-mode">
+        <option value="text">text</option>
+        <option value="image">image</option>
+      </select>
+    </div>
+    <div>
+      <label>Conference ID (blank = all)</label>
+      <input id="search-conf-id" placeholder="optional">
+    </div>
+  </div>
+  <button onclick="doSearch()">🔍 Search</button>
+</div>
+
+<h2>AI Question</h2>
+<div class="section">
+  <label>Question</label>
+  <textarea id="ai-question" rows="2">Было ли предложение по увеличению бюджета и было ли оно принято?</textarea>
+  <label>Conference ID (blank = all)</label>
+  <input id="ai-conf-id" placeholder="optional">
+  <button onclick="aiAnswer()">🤖 Ask AI</button>
+</div>
+
+<h2>Task Status</h2>
+<div class="section">
+  <label>Task ID</label>
+  <input id="task-id" placeholder="celery task uuid">
+  <button onclick="getTask()">⏳ Check Status</button>
+</div>
+
+<h2>Response</h2>
+<pre id="out">// response will appear here</pre>
+
+<script>
+const base = () => document.getElementById('base').value;
+const out = (data) => { document.getElementById('out').textContent = JSON.stringify(data, null, 2); };
+
+async function req(method, path, body=null, isForm=false) {
+  const opts = { method, headers: isForm ? {} : {'Content-Type':'application/json'} };
+  if (body) opts.body = isForm ? body : JSON.stringify(body);
+  const r = await fetch(base() + path, opts);
+  const data = await r.json().catch(() => ({}));
+  out(data);
+  return data;
+}
+
+async function createConf() {
+  const d = await req('POST', '/conferences', {
+    title: document.getElementById('conf-title').value,
+    language: document.getElementById('conf-lang').value,
+  });
+  if (d.id) {
+    document.getElementById('media-conf-id').value = d.id;
+    document.getElementById('note-conf-id').value = d.id;
+    document.getElementById('att-conf-id').value = d.id;
+    document.getElementById('sum-conf-id').value = d.id;
+    document.getElementById('ai-conf-id').value = d.id;
+  }
+}
+async function listConfs() { await req('GET', '/conferences'); }
+
+async function uploadMedia() {
+  const cid = document.getElementById('media-conf-id').value;
+  const file = document.getElementById('media-file').files[0];
+  if (!file) return alert('Select file');
+  const fd = new FormData(); fd.append('file', file);
+  const d = await req('POST', `/conferences/${cid}/media`, fd, true);
+  if (d.id) document.getElementById('media-id').value = d.id;
+}
+
+async function transcribeMedia() {
+  const cid = document.getElementById('media-conf-id').value;
+  const mid = document.getElementById('media-id').value;
+  const lang = document.getElementById('media-lang').value || null;
+  const d = await req('POST', `/conferences/${cid}/media/${mid}/transcribe`, {language: lang});
+  if (d.task_id) document.getElementById('task-id').value = d.task_id;
+}
+
+async function getMedia() {
+  const cid = document.getElementById('media-conf-id').value;
+  const mid = document.getElementById('media-id').value;
+  await req('GET', `/conferences/${cid}/media/${mid}`);
+}
+
+async function createNote() {
+  const cid = document.getElementById('note-conf-id').value;
+  await req('POST', `/conferences/${cid}/notes`, {
+    content: document.getElementById('note-content').value,
+  });
+}
+async function listNotes() {
+  const cid = document.getElementById('note-conf-id').value;
+  await req('GET', `/conferences/${cid}/notes`);
+}
+
+async function uploadAtt() {
+  const cid = document.getElementById('att-conf-id').value;
+  const file = document.getElementById('att-file').files[0];
+  if (!file) return alert('Select file');
+  const fd = new FormData(); fd.append('file', file);
+  await req('POST', `/conferences/${cid}/attachments`, fd, true);
+}
+
+async function summarize() {
+  const cid = document.getElementById('sum-conf-id').value;
+  const d = await req('POST', `/conferences/${cid}/summarize`, {
+    include_transcripts: true, include_notes: true, include_attachments: true,
+  });
+  if (d.task_id) document.getElementById('task-id').value = d.task_id;
+}
+async function getSummary() {
+  const cid = document.getElementById('sum-conf-id').value;
+  await req('GET', `/conferences/${cid}/summary`);
+}
+
+async function doSearch() {
+  const cid = document.getElementById('search-conf-id').value || undefined;
+  await req('POST', '/search', {
+    query: document.getElementById('search-query').value,
+    mode: document.getElementById('search-mode').value,
+    conference_id: cid, top_k: 10,
+  });
+}
+
+async function aiAnswer() {
+  const cid = document.getElementById('ai-conf-id').value || undefined;
+  await req('POST', '/search/ai-answer', {
+    question: document.getElementById('ai-question').value,
+    conference_id: cid,
+  });
+}
+
+async function getTask() {
+  const tid = document.getElementById('task-id').value;
+  await req('GET', `/tasks/${tid}`);
+}
+</script>
+</body>
+</html>
